@@ -43,16 +43,6 @@ rbac:
 # Pod security context
 podSecurityContext: {}
 
-# Container security context
-securityContext:
-  allowPrivilegeEscalation: false
-  capabilities:
-    drop:
-      - ALL
-  runAsNonRoot: true
-  seccompProfile:
-    type: RuntimeDefault
-
 # Root CA configuration
 rootCA:
   create: true
