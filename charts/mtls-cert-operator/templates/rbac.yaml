@@ -1,0 +1,42 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "mtls-cert-operator.fullname" . }}
+  labels:
+    {{- include "mtls-cert-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ['mtls.invoisight.com']
+    resources: ['tenants']
+    verbs: ['*']
+  - apiGroups: ['mtls.invoisight.com']
+    resources: ['tenants/status']
+    verbs: ['get', 'update', 'patch']
+  - apiGroups: ['cert-manager.io']
+    resources: ['certificates', 'issuers', 'clusterissuers']
+    verbs: ['*']
+  - apiGroups: ['']
+    resources: ['secrets', 'configmaps', 'events', 'namespaces']
+    verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete']
+  - apiGroups: ['apps']
+    resources: ['deployments']
+    verbs: ['get', 'list', 'watch', 'patch']
+  - apiGroups: ['apiextensions.k8s.io']
+    resources: ['customresourcedefinitions']
+    verbs: ['get', 'list', 'watch']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "mtls-cert-operator.fullname" . }}
+  labels:
+    {{- include "mtls-cert-operator.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mtls-cert-operator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "mtls-cert-operator.fullname" . }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

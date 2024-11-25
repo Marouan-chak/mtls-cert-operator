@@ -1,0 +1,67 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: tenants.mtls.invoisight.com
+spec:
+  group: mtls.invoisight.com
+  names:
+    kind: Tenant
+    plural: tenants
+    singular: tenant
+    shortNames:
+      - ten
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: 'Name of the tenant'
+                revoked:
+                  type: boolean
+                  description: 'Whether to revoke tenant access'
+                  default: false
+              required:
+                - name
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                intermediateCA:
+                  type: string
+                  description: 'Name of the intermediate CA certificate'
+                clientCert:
+                  type: string
+                  description: 'Name of the client certificate'
+                isRevoked:
+                  type: boolean
+                  description: 'Whether tenant access is revoked'
+                state:
+                  type: string
+                  description: 'Current state of the tenant'
+                message:
+                  type: string
+                  description: 'Additional status information'
+                kopf:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Name
+          type: string
+          jsonPath: .spec.name
+        - name: State
+          type: string
+          jsonPath: .status.state
+        - name: Revoked
+          type: boolean
+          jsonPath: .status.isRevoked
