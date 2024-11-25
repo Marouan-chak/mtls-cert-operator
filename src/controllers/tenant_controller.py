@@ -221,3 +221,46 @@ def reconcile_tenant(spec, meta, status, patch, **kwargs):
     except Exception as e:
         logger.error(f"Reconciliation failed for {tenant_name}: {e}")
         patch.status['message'] = f"Reconciliation failed: {str(e)}"
+
+@kopf.on.timer('mtls.invoisight.com', 'v1', 'tenants', interval=30.0, initial_delay=10.0)
+def check_ca_chain_secret(spec, meta, status, **kwargs):
+    """Periodically check and recreate ca-chain-secret if missing."""
+    try:
+        namespace = meta['namespace']
+        
+        # Try to get the ca-chain-secret
+        try:
+            core_v1_api.read_namespaced_secret('ca-chain-secret', namespace)
+            # If we get here, the secret exists
+            return
+        except ApiException as e:
+            if e.status != 404:  # If error is not "Not Found", ignore it
+                return
+            
+            logger.info(f"ca-chain-secret not found in namespace {namespace}, recreating...")
+            
+            # Get all active tenants in the namespace
+            tenants = custom_objects_api.list_namespaced_custom_object(
+                'mtls.invoisight.com', 'v1', namespace, 'tenants'
+            )
+            
+            # Find any revoked tenants
+            revoked_tenants = [
+                t['spec']['name'] for t in tenants['items']
+                if t.get('status', {}).get('isRevoked', False)
+            ]
+            
+            # Recreate the chain excluding revoked tenants
+            if revoked_tenants:
+                logger.info(f"Excluding revoked tenants from chain: {revoked_tenants}")
+                for tenant in revoked_tenants:
+                    ca_chain_service.create_or_update_ca_chain(
+                        namespace=namespace,
+                        excluded_tenant=tenant
+                    )
+            else:
+                # If no revoked tenants, just create the chain normally
+                ca_chain_service.create_or_update_ca_chain(namespace=namespace)
+                
+    except Exception as e:
+        logger.error(f"Failed to check/recreate ca-chain-secret: {e}")
