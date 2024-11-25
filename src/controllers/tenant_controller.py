@@ -85,9 +85,6 @@ def create_tenant(spec, meta, patch, **kwargs):
             'state': 'Revoked' if initially_revoked else 'Active'
         })
         
-        # Ensure we wait for the intermediate CA secret before updating the chain
-        wait_for_secret(core_v1_api, f"{intermediate_ca_name}-secret", namespace)
-        
         # Update CA chain
         ca_chain_service.create_or_update_ca_chain(
             excluded_tenant=tenant_name if initially_revoked else None

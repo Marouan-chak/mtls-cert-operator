@@ -10,7 +10,7 @@ readonly BLUE='\033[0;34m'
 readonly NC='\033[0m' # No Color
 
 # Configuration
-readonly NAMESPACE="monitoring"
+readonly NAMESPACE="default"
 readonly SERVER_URL="myserver.invoisight.com"
 readonly CERTS_DIR="certs"
 readonly MAX_RETRIES=30
