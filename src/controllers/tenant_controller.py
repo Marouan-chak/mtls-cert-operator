@@ -158,7 +158,62 @@ def reconcile_tenant(spec, meta, status, patch, **kwargs):
     logger.info(f"Reconciling failed tenant {tenant_name}")
     
     try:
-        create_tenant(spec, meta, patch, **kwargs)
+        # Check if resources already exist
+        namespace = meta['namespace']
+        intermediate_ca_name = f"{tenant_name}-intermediate-ca"
+        client_cert_name = f"{tenant_name}-client-cert"
+        
+        # Create or update intermediate CA certificate
+        cert_service.create_certificate(
+            name=intermediate_ca_name,
+            namespace=namespace,
+            isCA=True,
+            commonName=f"{tenant_name}-intermediate-ca",
+            secretName=f"{intermediate_ca_name}-secret",
+            privateKey={'algorithm': 'RSA', 'size': 4096},
+            issuerRef={
+                'name': 'root-ca-issuer',
+                'kind': 'ClusterIssuer',
+                'group': 'cert-manager.io'
+            },
+            usages=['digital signature', 'key encipherment', 'cert sign']
+        )
+        
+        wait_for_secret(core_v1_api, f"{intermediate_ca_name}-secret", namespace)
+        
+        # Create or update issuer
+        cert_service.create_issuer(
+            name=intermediate_ca_name,
+            namespace=namespace,
+            secret_name=f"{intermediate_ca_name}-secret"
+        )
+        
+        # Create or update client certificate
+        cert_service.create_certificate(
+            name=client_cert_name,
+            namespace=namespace,
+            commonName=tenant_name,
+            secretName=f"{client_cert_name}-secret",
+            privateKey={'algorithm': 'RSA', 'size': 2048},
+            issuerRef={
+                'name': intermediate_ca_name,
+                'kind': 'Issuer',
+                'group': 'cert-manager.io'
+            },
+            usages=['digital signature', 'key encipherment', 'client auth']
+        )
+        
+        wait_for_secret(core_v1_api, f"{client_cert_name}-secret", namespace)
+        
+        # Update status
+        patch.status.update({
+            'intermediateCA': intermediate_ca_name,
+            'clientCert': client_cert_name,
+            'isRevoked': spec.get('revoked', False),
+            'state': 'Active',
+            'message': 'Reconciliation successful'
+        })
+        
     except Exception as e:
         logger.error(f"Reconciliation failed for {tenant_name}: {e}")
         patch.status['message'] = f"Reconciliation failed: {str(e)}"
