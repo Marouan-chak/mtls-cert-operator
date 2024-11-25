@@ -10,6 +10,7 @@ image:
 
 # Deployment configuration
 replicaCount: 1
+namespace: monitoring
 
 # Resource requests and limits
 resources:
