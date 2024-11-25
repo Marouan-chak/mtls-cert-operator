@@ -1,0 +1,7 @@
+apiVersion: mtls.invoisight.com/v1
+kind: Tenant
+metadata:
+  name: tenant1
+  namespace: default
+spec:
+  name: tenant1

@@ -1,0 +1,35 @@
+{{- if .Values.rootCA.create -}}
+# Create the self-signed ClusterIssuer
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.rootCA.issuerName }}
+  labels:
+    {{- include "mtls-cert-operator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+# Create the root CA certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: root-ca-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mtls-cert-operator.labels" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: {{ .Values.rootCA.commonName }}
+  secretName: {{ .Values.rootCA.secretName }}
+  privateKey:
+    algorithm: RSA
+    size: {{ .Values.rootCA.keySize }}
+  issuerRef:
+    name: {{ .Values.rootCA.issuerName }}
+    kind: ClusterIssuer
+    group: cert-manager.io
+  usages:
+    - digital signature
+    - key encipherment
+    - cert sign
+{{- end }}

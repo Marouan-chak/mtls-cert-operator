@@ -1,0 +1,26 @@
+apiVersion: v1
+entries:
+  mtls-cert-operator:
+  - apiVersion: v2
+    appVersion: 1.0.0
+    created: "2024-11-25T06:14:10.885326595+01:00"
+    description: A Kubernetes operator for managing mTLS certificates with automatic
+      client certificate generation and revocation capabilities
+    digest: fca1b128f1952b82b1708f94223d387d3ef93916d2f97e3b40891a45d4d5c8f9
+    home: https://github.com/Marouan-chak/mtls-cert-operator
+    keywords:
+    - mtls
+    - certificates
+    - security
+    - operator
+    maintainers:
+    - email: marouane.chakran@gmail.com
+      name: Marouan Chakran
+    name: mtls-cert-operator
+    sources:
+    - https://github.com/Marouan-chak/mtls-cert-operator
+    type: application
+    urls:
+    - mtls-cert-operator-0.1.0.tgz
+    version: 0.1.0
+generated: "2024-11-25T06:14:10.884745719+01:00"

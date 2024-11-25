@@ -1,0 +1,83 @@
+# Default values for mtls-cert-operator
+nameOverride: ''
+fullnameOverride: ''
+
+# Operator image configuration
+image:
+  repository: marouandock/invoisight
+  tag: operator3
+  pullPolicy: Always
+
+# Image pull secrets
+imagePullSecrets:
+  - name: regcred
+
+# Deployment configuration
+replicaCount: 1
+
+# Resource requests and limits
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 250m
+    memory: 128Mi
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: 'tenant-operator'
+  annotations: {}
+
+# RBAC configuration
+rbac:
+  create: true
+
+# Pod security context
+podSecurityContext: {}
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# Root CA configuration
+rootCA:
+  create: true
+  commonName: 'root-ca'
+  secretName: 'root-ca-secret'
+  keySize: 4096
+  issuerName: 'root-ca-issuer'
+
+# Operator configuration
+operator:
+  logLevel: 'INFO'
+  watchNamespace: '' # Empty for cluster-wide
+
+# Test server configuration (optional)
+testServer:
+  enabled: false
+  ingress:
+    enabled: true
+    hostname: 'myserver.invoisight.com'
+    annotations:
+      cert-manager.io/cluster-issuer: 'letsencrypt-prod'
+      nginx.ingress.kubernetes.io/auth-tls-secret: 'default/ca-chain-secret'
+      nginx.ingress.kubernetes.io/auth-tls-verify-client: 'on'
+      nginx.ingress.kubernetes.io/auth-tls-verify-depth: '3'
+      nginx.ingress.kubernetes.io/auth-tls-set-header: 'True'

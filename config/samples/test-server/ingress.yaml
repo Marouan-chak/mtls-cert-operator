@@ -1,0 +1,39 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nginx-backend-ingress
+  namespace: default
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/auth-tls-secret: default/ca-chain-secret
+    nginx.ingress.kubernetes.io/auth-tls-set-header: "True"
+    nginx.ingress.kubernetes.io/auth-tls-verify-client: "on"
+    nginx.ingress.kubernetes.io/auth-tls-verify-depth: "3"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      set $cleaned_dn $ssl_client_s_dn;
+      if ($ssl_client_s_dn ~ "CN=(.*)") {
+        set $cleaned_dn $1;
+      }
+      proxy_set_header X-Org-Id $cleaned_dn;
+
+      # Add verification status headers
+      add_header X-Debug-SSL-Client-Verify $ssl_client_verify always;
+      add_header X-Debug-SSL-Client-DN $ssl_client_s_dn always;
+      add_header X-Debug-SSL-Client-Issuer $ssl_client_i_dn always;
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: myserver.invoisight.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: nginx-backend
+            port:
+              number: 80
+  tls:
+  - hosts:
+    - myserver.invoisight.com
+    secretName: myserver-tls

@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "mtls-cert-operator.fullname" . }}-test"
+  labels:
+    {{- include "mtls-cert-operator.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: test
+      image: busybox
+      command: 
+        - /bin/sh
+        - -c
+        - |
+          # Wait for operator pod
+          until kubectl get pods -l app.kubernetes.io/name={{ include "mtls-cert-operator.name" . }} -n {{ .Release.Namespace }} | grep -q Running; do
+            echo "Waiting for operator pod..."
+            sleep 2
+          done
+
+          # Create test tenant
+          cat <<EOF | kubectl apply -f -
+          apiVersion: mtls.invoisight.com/v1
+          kind: Tenant
+          metadata:
+            name: test-tenant
+          spec:
+            name: test-tenant
+            revoked: false
+          EOF
+
+          # Wait for certificate creation
+          until kubectl get secret test-tenant-client-cert-secret -n {{ .Release.Namespace }}; do
+            echo "Waiting for certificate..."
+            sleep 2
+          done
+
+          # Cleanup
+          kubectl delete tenant test-tenant
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 50m
+          memory: 64Mi
+  restartPolicy: Never
+  serviceAccountName: {{ include "mtls-cert-operator.serviceAccountName" . }}

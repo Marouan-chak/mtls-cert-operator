@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tenant-operator
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tenant-operator
+  template:
+    metadata:
+      labels:
+        app: tenant-operator
+    spec:
+      serviceAccountName: tenant-operator
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: operator
+          image: marouandock/invoisight:operator3
+          imagePullPolicy: Always
+          resources:
+            limits:
+              memory: '256Mi'
+              cpu: '500m'
+            requests:
+              memory: '128Mi'
+              cpu: '250m'
