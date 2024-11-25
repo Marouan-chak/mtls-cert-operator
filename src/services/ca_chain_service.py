@@ -11,16 +11,16 @@ class CAChainService:
         self.core_v1_api = core_v1_api
         self.custom_objects_api = custom_objects_api
 
-    def create_or_update_ca_chain(self, excluded_tenant=None, force_include=None):
+    def create_or_update_ca_chain(self, namespace, excluded_tenant=None, force_include=None):
         """Update the CA chain secret."""
         try:
             logger.info(f"Updating CA chain (excluded: {excluded_tenant}, force include: {force_include})")
             
             # Get root CA
             try:
-                root_ca_secret = self.core_v1_api.read_namespaced_secret('root-ca-secret', 'default')
+                root_ca_secret = self.core_v1_api.read_namespaced_secret('root-ca-secret', namespace)
                 if not root_ca_secret.data or 'tls.crt' not in root_ca_secret.data:
-                    raise kopf.PermanentError("Root CA secret is missing or invalid")
+                    raise kopf.PermanentError(f"Root CA secret is missing or invalid in namespace {namespace}")
                 root_ca = base64.b64decode(root_ca_secret.data['tls.crt'])
                 logger.info("Successfully read root CA certificate")
             except ApiException as e:
@@ -33,7 +33,7 @@ class CAChainService:
             # List all tenants
             try:
                 tenants = self.custom_objects_api.list_namespaced_custom_object(
-                    'mtls.invoisight.com', 'v1', 'default', 'tenants'
+                    'mtls.invoisight.com', 'v1', namespace, 'tenants'
                 )
                 logger.info(f"Found {len(tenants['items'])} tenants")
             except ApiException as e:
@@ -54,7 +54,7 @@ class CAChainService:
                     
                 secret_name = f"{tenant_name}-intermediate-ca-secret"
                 try:
-                    secret = self.core_v1_api.read_namespaced_secret(secret_name, 'default')
+                    secret = self.core_v1_api.read_namespaced_secret(secret_name, namespace)
                     if secret.data and 'tls.crt' in secret.data:
                         chain.append(base64.b64decode(secret.data['tls.crt']))
                         logger.info(f"Added {tenant_name} intermediate CA to chain")
@@ -74,11 +74,11 @@ class CAChainService:
             )
             
             try:
-                self.core_v1_api.replace_namespaced_secret('ca-chain-secret', 'default', secret)
+                self.core_v1_api.replace_namespaced_secret('ca-chain-secret', namespace, secret)
                 logger.info("Successfully updated ca-chain-secret")
             except ApiException as e:
                 if e.status == 404:
-                    self.core_v1_api.create_namespaced_secret('default', secret)
+                    self.core_v1_api.create_namespaced_secret(namespace, secret)
                     logger.info("Successfully created ca-chain-secret")
                 else:
                     logger.error(f"Failed to update ca-chain-secret: {e}")
