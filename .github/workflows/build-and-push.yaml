@@ -2,10 +2,13 @@ name: Build and Push Docker image
 
 on:
   push:
-    branches: [ main ]
-    # Optionally trigger on tags
-    tags: [ 'v*.*.*' ]
-  # Optionally enable manual trigger
+    branches: 
+      - main
+      - 'fix_*'    # Will match fix_bug, fix_issue, etc.
+      - 'feature/*' # Optional: for feature branches
+    tags: 
+      - 'v*.*.*'
+      - 'v*.*.*-*' # This will match debug tags like v1.0.0-debug
   workflow_dispatch:
 
 env:
@@ -45,6 +48,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=debug,enable=${{ github.ref_type == 'tag' && contains(github.ref, '-debug') }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
