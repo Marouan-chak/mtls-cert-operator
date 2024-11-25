@@ -4,13 +4,9 @@ fullnameOverride: ''
 
 # Operator image configuration
 image:
-  repository: marouandock/invoisight
-  tag: operator3
+  repository: ghcr.io/marouan-chak/mtls-cert-operator
+  tag: latest
   pullPolicy: Always
-
-# Image pull secrets
-imagePullSecrets:
-  - name: regcred
 
 # Deployment configuration
 replicaCount: 1
