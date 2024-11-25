@@ -25,7 +25,7 @@ class CAChainService:
             
             # List all tenants
             tenants = self.custom_objects_api.list_namespaced_custom_object(
-                'mtls.invoisight.com', 'v1', 'default', 'tenants'
+                'mtls.invoisight.com', 'v1', namespace, 'tenants'
             )
             
             # Add intermediate CAs
@@ -40,7 +40,7 @@ class CAChainService:
                     
                 secret_name = f"{tenant_name}-intermediate-ca-secret"
                 try:
-                    secret = self.core_v1_api.read_namespaced_secret(secret_name, 'default')
+                    secret = self.core_v1_api.read_namespaced_secret(secret_name, namespace)
                     if secret.data and 'tls.crt' in secret.data:
                         chain.append(base64.b64decode(secret.data['tls.crt']))
                 except ApiException as e:
@@ -55,10 +55,10 @@ class CAChainService:
             )
             
             try:
-                self.core_v1_api.replace_namespaced_secret('ca-chain-secret', 'default', secret)
+                self.core_v1_api.replace_namespaced_secret('ca-chain-secret', namespace, secret)
             except ApiException as e:
                 if e.status == 404:
-                    self.core_v1_api.create_namespaced_secret('default', secret)
+                    self.core_v1_api.create_namespaced_secret(namespace, secret)
                     
         except Exception as e:
             raise kopf.PermanentError(f"Failed to update CA chain: {str(e)}")
