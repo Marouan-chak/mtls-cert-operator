@@ -12,7 +12,7 @@ class CertificateService:
         self.custom_objects_api = custom_objects_api
 
     def create_certificate(self, name, namespace, **kwargs):
-        """Create a cert-manager Certificate resource if it doesn't exist."""
+        """Create a cert-manager Certificate resource."""
         cert = {
             'apiVersion': f'{Config.CERT_MANAGER_GROUP}/{Config.CERT_MANAGER_VERSION}',
             'kind': 'Certificate',
@@ -22,28 +22,13 @@ class CertificateService:
             },
             'spec': kwargs
         }
-        try:
-            # Try to get existing certificate
-            self.custom_objects_api.get_namespaced_custom_object(
-                Config.CERT_MANAGER_GROUP, Config.CERT_MANAGER_VERSION,
-                namespace, 'certificates', name
-            )
-            # If it exists, update it
-            return self.custom_objects_api.patch_namespaced_custom_object(
-                Config.CERT_MANAGER_GROUP, Config.CERT_MANAGER_VERSION,
-                namespace, 'certificates', name, cert
-            )
-        except ApiException as e:
-            if e.status == 404:
-                # If it doesn't exist, create it
-                return self.custom_objects_api.create_namespaced_custom_object(
-                    Config.CERT_MANAGER_GROUP, Config.CERT_MANAGER_VERSION,
-                    namespace, 'certificates', cert
-                )
-            raise
+        return self.custom_objects_api.create_namespaced_custom_object(
+            Config.CERT_MANAGER_GROUP, Config.CERT_MANAGER_VERSION,
+            namespace, 'certificates', cert
+        )
 
     def create_issuer(self, name, namespace, secret_name):
-        """Create a cert-manager Issuer resource if it doesn't exist."""
+        """Create a cert-manager Issuer resource."""
         issuer = {
             'apiVersion': f'{Config.CERT_MANAGER_GROUP}/{Config.CERT_MANAGER_VERSION}',
             'kind': 'Issuer',
@@ -57,22 +42,7 @@ class CertificateService:
                 }
             }
         }
-        try:
-            # Try to get existing issuer
-            self.custom_objects_api.get_namespaced_custom_object(
-                Config.CERT_MANAGER_GROUP, Config.CERT_MANAGER_VERSION,
-                namespace, 'issuers', name
-            )
-            # If it exists, update it
-            return self.custom_objects_api.patch_namespaced_custom_object(
-                Config.CERT_MANAGER_GROUP, Config.CERT_MANAGER_VERSION,
-                namespace, 'issuers', name, issuer
-            )
-        except ApiException as e:
-            if e.status == 404:
-                # If it doesn't exist, create it
-                return self.custom_objects_api.create_namespaced_custom_object(
-                    Config.CERT_MANAGER_GROUP, Config.CERT_MANAGER_VERSION,
-                    namespace, 'issuers', issuer
-                )
-            raise
+        return self.custom_objects_api.create_namespaced_custom_object(
+            Config.CERT_MANAGER_GROUP, Config.CERT_MANAGER_VERSION,
+            namespace, 'issuers', issuer
+        )
