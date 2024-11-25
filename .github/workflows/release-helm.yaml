@@ -5,7 +5,6 @@ on:
     branches: [ main ]
     paths:
       - 'charts/**'
-  # Optionally enable manual trigger
   workflow_dispatch:
 
 jobs:
@@ -27,9 +26,12 @@ jobs:
         with:
           version: v3.12.1
 
+      - name: Create temporary directory
+        run: mkdir -p temp
+
       - name: Package Helm chart
         run: |
-          helm package charts/mtls-cert-operator
+          helm package charts/mtls-cert-operator -d temp/
 
       - name: Switch to gh-pages branch
         run: |
@@ -39,13 +41,17 @@ jobs:
 
       - name: Update Helm repository
         run: |
-          # Move packaged chart
-          mv mtls-cert-operator-*.tgz .
+          # Move any existing .tgz files to temp directory to preserve history
+          mv *.tgz temp/ 2>/dev/null || true
           
-          # Generate or update index
-          helm repo index . --url https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+          # Generate or update index using all charts in temp directory
+          helm repo index temp/ --url https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+          
+          # Move everything back
+          mv temp/* .
+          rm -rf temp
           
           # Commit and push
           git add .
-          git commit -m "Update Helm repository" || echo "No changes to commit"
+          git commit -m "Update Helm repository [skip ci]" || echo "No changes to commit"
           git push origin gh-pages
