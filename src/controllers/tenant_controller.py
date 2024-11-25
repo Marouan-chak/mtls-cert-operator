@@ -87,6 +87,7 @@ def create_tenant(spec, meta, patch, **kwargs):
         
         # Update CA chain
         ca_chain_service.create_or_update_ca_chain(
+            namespace=namespace,
             excluded_tenant=tenant_name if initially_revoked else None
         )
         
@@ -103,7 +104,10 @@ def delete_tenant(spec, meta, **kwargs):
     logger.info(f"Deleting tenant {tenant_name}")
     
     # Update CA chain
-    ca_chain_service.create_or_update_ca_chain(excluded_tenant=tenant_name)
+    ca_chain_service.create_or_update_ca_chain(
+        namespace=namespace,
+        excluded_tenant=tenant_name
+    )
     
     # Delete resources
     resources = [
@@ -128,13 +132,17 @@ def delete_tenant(spec, meta, **kwargs):
                 logger.error(f"Failed to delete {resource_type} {name}: {e}")
 
 @kopf.on.field('mtls.invoisight.com', 'v1', 'tenants', field='spec.revoked')
-def handle_revocation_request(spec, status, old, new, patch, **kwargs):
+def handle_revocation_request(spec, status, old, new, patch, meta, **kwargs):
     """Handle tenant revocation requests."""
     tenant_name = spec['name']
+    namespace = meta['namespace']
     
     if new and not old:  # Revoking
         logger.info(f"Revoking tenant {tenant_name}")
-        ca_chain_service.create_or_update_ca_chain(excluded_tenant=tenant_name)
+        ca_chain_service.create_or_update_ca_chain(
+            namespace=namespace,
+            excluded_tenant=tenant_name
+        )
         patch.status.update({
             'isRevoked': True,
             'state': 'Revoked'
@@ -142,7 +150,10 @@ def handle_revocation_request(spec, status, old, new, patch, **kwargs):
     elif old and not new:  # Unrevoking
         if status.get('isRevoked', False):
             logger.info(f"Unrevoking tenant {tenant_name}")
-            ca_chain_service.create_or_update_ca_chain(force_include=tenant_name)
+            ca_chain_service.create_or_update_ca_chain(
+                namespace=namespace,
+                force_include=tenant_name
+            )
             patch.status.update({
                 'isRevoked': False,
                 'state': 'Active'

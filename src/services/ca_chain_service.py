@@ -11,13 +11,13 @@ class CAChainService:
         self.core_v1_api = core_v1_api
         self.custom_objects_api = custom_objects_api
 
-    def create_or_update_ca_chain(self, excluded_tenant=None, force_include=None):
+    def create_or_update_ca_chain(self, namespace, excluded_tenant=None, force_include=None):
         """Update the CA chain secret."""
         try:
             # Get root CA
-            root_ca_secret = self.core_v1_api.read_namespaced_secret('root-ca-secret', 'default')
+            root_ca_secret = self.core_v1_api.read_namespaced_secret('root-ca-secret', namespace)
             if not root_ca_secret.data or 'tls.crt' not in root_ca_secret.data:
-                raise kopf.PermanentError("Root CA secret is missing")
+                raise kopf.PermanentError(f"Root CA secret is missing in namespace {namespace}")
             root_ca = base64.b64decode(root_ca_secret.data['tls.crt'])
             
             # Start chain with root CA
