@@ -1,0 +1,51 @@
+name: Release Helm Chart
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'charts/**'
+  # Optionally enable manual trigger
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.12.1
+
+      - name: Package Helm chart
+        run: |
+          helm package charts/mtls-cert-operator
+
+      - name: Switch to gh-pages branch
+        run: |
+          git checkout gh-pages || git checkout --orphan gh-pages
+          git reset --hard
+          git pull origin gh-pages || true
+
+      - name: Update Helm repository
+        run: |
+          # Move packaged chart
+          mv mtls-cert-operator-*.tgz .
+          
+          # Generate or update index
+          helm repo index . --url https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+          
+          # Commit and push
+          git add .
+          git commit -m "Update Helm repository" || echo "No changes to commit"
+          git push origin gh-pages
