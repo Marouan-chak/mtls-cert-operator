@@ -1,0 +1,44 @@
+properties:
+  spec:
+    type: object
+    properties:
+      name:
+        type: string
+      revoked:
+        type: boolean
+      certificateTemplate:
+        type: object
+        properties:
+          intermediate:
+            type: object
+            properties:
+              keySize:
+                type: integer
+                minimum: 2048
+                default: 4096
+              algorithm:
+                type: string
+                enum: ['RSA', 'ECDSA']
+                default: 'RSA'
+              usages:
+                type: array
+                items:
+                  type: string
+                default: ['digital signature', 'key encipherment', 'cert sign']
+          client:
+            type: object
+            properties:
+              keySize:
+                type: integer
+                minimum: 2048
+                default: 2048
+              algorithm:
+                type: string
+                enum: ['RSA', 'ECDSA']
+                default: 'RSA'
+              usages:
+                type: array
+                items:
+                  type: string
+                default:
+                  ['digital signature', 'key encipherment', 'client auth']

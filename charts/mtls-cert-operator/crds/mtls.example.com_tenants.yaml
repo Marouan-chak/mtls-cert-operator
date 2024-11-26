@@ -29,6 +29,52 @@ spec:
                   type: boolean
                   description: 'Whether to revoke tenant access'
                   default: false
+                certificateTemplate:
+                  type: object
+                  description: 'Certificate configuration templates'
+                  properties:
+                    intermediate:
+                      type: object
+                      properties:
+                        keySize:
+                          type: integer
+                          minimum: 256
+                          default: 4096
+                        algorithm:
+                          type: string
+                          enum: ['RSA', 'ECDSA']
+                          default: 'RSA'
+                        usages:
+                          type: array
+                          items:
+                            type: string
+                          default:
+                            [
+                              'digital signature',
+                              'key encipherment',
+                              'cert sign',
+                            ]
+                    client:
+                      type: object
+                      properties:
+                        keySize:
+                          type: integer
+                          minimum: 256
+                          default: 2048
+                        algorithm:
+                          type: string
+                          enum: ['RSA', 'ECDSA']
+                          default: 'RSA'
+                        usages:
+                          type: array
+                          items:
+                            type: string
+                          default:
+                            [
+                              'digital signature',
+                              'key encipherment',
+                              'client auth',
+                            ]
               required:
                 - name
             status:

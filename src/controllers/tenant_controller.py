@@ -4,26 +4,71 @@ from kubernetes.client.rest import ApiException
 from utils.logging import setup_logger
 from utils.kubernetes import KubernetesUtils
 from config import Config
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
 @dataclass
+class CertificateTemplate:
+    """Certificate configuration template."""
+    key_size: int
+    algorithm: str
+    usages: List[str]
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any], defaults: Dict[str, Any]) -> 'CertificateTemplate':
+        return cls(
+            key_size=data.get('keySize', defaults['keySize']),
+            algorithm=data.get('algorithm', defaults['algorithm']),
+            usages=data.get('usages', defaults['usages'])
+        )
+
+@dataclass
 class TenantResources:
-    """Data class for tenant resource names."""
+    """Data class for tenant resource names and configurations."""
     intermediate_ca: str
     client_cert: str
     intermediate_ca_secret: str
     client_cert_secret: str
+    intermediate_template: CertificateTemplate
+    client_template: CertificateTemplate
     
     @classmethod
-    def from_tenant_name(cls, tenant_name: str) -> 'TenantResources':
-        """Create resource names from tenant name."""
+    def from_tenant_spec(cls, spec: Dict[str, Any]) -> 'TenantResources':
+        """Create resource names and templates from tenant spec."""
+        tenant_name = spec['name']
         intermediate_ca = f"{tenant_name}-intermediate-ca"
+        
+        # Default templates
+        default_intermediate = {
+            'keySize': 4096,
+            'algorithm': 'RSA',
+            'usages': ['digital signature', 'key encipherment', 'cert sign']
+        }
+        
+        default_client = {
+            'keySize': 2048,
+            'algorithm': 'RSA',
+            'usages': ['digital signature', 'key encipherment', 'client auth']
+        }
+        
+        # Get templates from spec or use defaults
+        cert_templates = spec.get('certificateTemplate', {})
+        intermediate_template = CertificateTemplate.from_dict(
+            cert_templates.get('intermediate', {}),
+            default_intermediate
+        )
+        client_template = CertificateTemplate.from_dict(
+            cert_templates.get('client', {}),
+            default_client
+        )
+        
         return cls(
             intermediate_ca=intermediate_ca,
             client_cert=f"{tenant_name}-client-cert",
             intermediate_ca_secret=f"{intermediate_ca}-secret",
-            client_cert_secret=f"{tenant_name}-client-cert-secret"
+            client_cert_secret=f"{tenant_name}-client-cert-secret",
+            intermediate_template=intermediate_template,
+            client_template=client_template
         )
 
 class TenantController:
@@ -42,17 +87,17 @@ class TenantController:
         self.logger.info(f"Creating tenant {tenant_name}")
         
         try:
-            kopf.info(body, reason='Creating', message=f'Creating tenant {tenant_name}')
+            kopf.event(body, type='Normal', reason='Creating', message=f'Creating tenant {tenant_name}')
             patch.status['state'] = 'Creating'
             
-            resources = TenantResources.from_tenant_name(tenant_name)
+            resources = TenantResources.from_tenant_spec(spec)
             initially_revoked = spec.get('revoked', False)
             
             self._create_tenant_certificates(namespace, resources, tenant_name, body)
             self._update_tenant_status(patch, resources, initially_revoked)
             self._update_ca_chain(namespace, tenant_name, initially_revoked)
             
-            kopf.info(body, reason='Created', message=f'Successfully created tenant {tenant_name}')
+            kopf.event(body, type='Normal', reason='Created', message=f'Successfully created tenant {tenant_name}')
             
         except Exception as e:
             self._handle_creation_failure(patch, body, tenant_name, str(e))
@@ -72,13 +117,16 @@ class TenantController:
                 'isCA': True,
                 'commonName': f"{tenant_name}-intermediate-ca",
                 'secretName': resources.intermediate_ca_secret,
-                'privateKey': {'algorithm': 'RSA', 'size': 4096},
+                'privateKey': {
+                    'algorithm': resources.intermediate_template.algorithm,
+                    'size': resources.intermediate_template.key_size
+                },
                 'issuerRef': {
                     'name': 'root-ca-issuer',
                     'kind': 'ClusterIssuer',
                     'group': 'cert-manager.io'
                 },
-                'usages': ['digital signature', 'key encipherment', 'cert sign']
+                'usages': resources.intermediate_template.usages
             }
         }
         
@@ -118,13 +166,16 @@ class TenantController:
             'spec': {
                 'commonName': tenant_name,
                 'secretName': resources.client_cert_secret,
-                'privateKey': {'algorithm': 'RSA', 'size': 2048},
+                'privateKey': {
+                    'algorithm': resources.client_template.algorithm,
+                    'size': resources.client_template.key_size
+                },
                 'issuerRef': {
                     'name': resources.intermediate_ca,
                     'kind': 'Issuer',
                     'group': 'cert-manager.io'
                 },
-                'usages': ['digital signature', 'key encipherment', 'client auth']
+                'usages': resources.client_template.usages
             }
         }
         
@@ -239,7 +290,7 @@ class TenantController:
         self.logger.info(f"Reconciling failed tenant {tenant_name}")
         
         try:
-            resources = TenantResources.from_tenant_name(tenant_name)
+            resources = TenantResources.from_tenant_spec(spec)
             self._create_tenant_certificates(namespace, resources, tenant_name, patch)
             
             patch.status.update({

@@ -4,3 +4,19 @@ metadata:
   name: tenant1
 spec:
   name: tenant1
+  revoked: false
+  certificateTemplate:
+    intermediate:
+      keySize: 4096
+      algorithm: 'RSA'
+      usages:
+        - 'digital signature'
+        - 'key encipherment'
+        - 'cert sign'
+    client:
+      keySize: 2048
+      algorithm: 'RSA'
+      usages:
+        - 'digital signature'
+        - 'key encipherment'
+        - 'client auth'

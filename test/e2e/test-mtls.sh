@@ -70,10 +70,76 @@ wait_for_condition() {
 # Function to create tenants
 create_tenants() {
     local tenant_count=${1:-3}  # Default to 3 tenants if not specified
+    local template_type=${2:-"default"}  # Add template type parameter
     
     log_info "Creating $tenant_count tenants..."
     for i in $(seq 1 "$tenant_count"); do
         log_info "Creating tenant${i}..."
+        
+        # Select certificate template based on type
+        local template=""
+        case "$template_type" in
+            "ecdsa")
+                template=$(cat <<EOF
+apiVersion: mtls.invoisight.com/v1
+kind: Tenant
+metadata:
+  name: tenant$i
+  namespace: $NAMESPACE
+spec:
+  name: tenant$i
+  revoked: false
+  certificateTemplate:
+    intermediate:
+      keySize: 521
+      algorithm: "ECDSA"
+      usages:
+        - "digital signature"
+        - "key encipherment"
+        - "cert sign"
+    client:
+      keySize: 384
+      algorithm: "ECDSA"
+      usages:
+        - "digital signature"
+        - "key encipherment"
+        - "client auth"
+EOF
+)
+                ;;
+            "large-keys")
+                template=$(cat <<EOF
+apiVersion: mtls.invoisight.com/v1
+kind: Tenant
+metadata:
+  name: tenant$i
+  namespace: $NAMESPACE
+spec:
+  name: tenant$i
+  revoked: false
+  certificateTemplate:
+    intermediate:
+      keySize: 8192
+      algorithm: "RSA"
+      usages:
+        - "digital signature"
+        - "key encipherment"
+        - "cert sign"
+    client:
+      keySize: 4096
+      algorithm: "RSA"
+      usages:
+        - "digital signature"
+        - "key encipherment"
+        - "client auth"
+EOF
+)
+                ;;
+            *)
+                template=""  # Use defaults
+                ;;
+        esac
+        
         kubectl apply -f - <<EOF
 apiVersion: mtls.invoisight.com/v1
 kind: Tenant
@@ -83,9 +149,9 @@ metadata:
 spec:
   name: tenant$i
   revoked: false
+$template
 EOF
         
-        # Wait for cert secret
         if ! wait_for_condition \
             "tenant${i} certificates" \
             "kubectl get secret tenant${i}-client-cert-secret -n $NAMESPACE &>/dev/null"; then
@@ -317,6 +383,35 @@ cleanup() {
     log_success "Cleanup complete"
 }
 
+# Function to check certificate details
+check_cert_details() {
+    local tenant_name=$1
+    
+    if [[ -z "$tenant_name" ]]; then
+        log_error "Tenant name is required"
+        return 1
+    fi
+    
+    log_info "Checking certificate details for ${tenant_name}..."
+    
+    # Extract certificates if they don't exist
+    if [[ ! -f "$CERTS_DIR/${tenant_name}.crt" ]]; then
+        extract_certs "$tenant_name"
+    fi
+    
+    # Check intermediate CA certificate
+    log_info "Intermediate CA certificate details:"
+    kubectl get secret "${tenant_name}-intermediate-ca-secret" -n "$NAMESPACE" -o jsonpath='{.data.tls\.crt}' | \
+        base64 -d | openssl x509 -text -noout | \
+        grep -E "Public Key Algorithm|Public-Key: \([0-9]+ bit\)|X509v3 Key Usage"
+    
+    # Check client certificate
+    log_info "Client certificate details:"
+    kubectl get secret "${tenant_name}-client-cert-secret" -n "$NAMESPACE" -o jsonpath='{.data.tls\.crt}' | \
+        base64 -d | openssl x509 -text -noout | \
+        grep -E "Public Key Algorithm|Public-Key: \([0-9]+ bit\)|X509v3 Key Usage"
+}
+
 # Show help
 show_help() {
     cat << EOF
@@ -327,8 +422,11 @@ Usage:
 
 Available Commands:
   create    Create test tenants
-  extract   Extract certificates (usage: extract [tenant_name])
-  test      Test tenant access (usage: test [tenant_name])
+  create-ecdsa    Create test tenants with ECDSA certificates
+  create-large    Create test tenants with larger key sizes
+  extract   Extract certificates
+  test      Test tenant access
+  check     Check certificate details
   revoke    Revoke a tenant
   unrevoke  Unrevoke a tenant
   delete    Delete a tenant
@@ -345,45 +443,21 @@ EOF
 # Main menu
 show_menu() {
     echo -e "\n${YELLOW}mTLS Tenant Management${NC}"
-    echo "1. Create all tenants"
-    echo "2. Extract certificates"
-    echo "3. Test all tenants"
-    echo "4. Revoke a tenant"
-    echo "5. Unrevoke a tenant"
-    echo "6. Delete a tenant"
-    echo "7. Show tenant status"
-    echo "8. Check CA chain"
-    echo "9. Full setup (create, extract, test)"
+    echo "1. Create default tenants"
+    echo "2. Create ECDSA tenants"
+    echo "3. Create large-key tenants"
+    echo "4. Extract certificates"
+    echo "5. Test tenant access"
+    echo "6. Check certificate details"
+    echo "7. Revoke tenant"
+    echo "8. Unrevoke tenant"
+    echo "9. Delete tenant"
+    echo "10. Show tenant status"
+    echo "11. Check CA chain"
+    echo "12. Full setup (create, extract, test)"
     echo "0. Cleanup"
     echo "q. Quit"
 }
-
-# Command line interface
-if [[ $# -gt 0 ]]; then
-    case "$1" in
-        create) shift; create_tenants "$@" ;;
-        extract) shift; extract_certs "$@" ;;
-        test) shift; test_tenants "$@" ;;
-        revoke) shift; revoke_tenant "$@" ;;
-        unrevoke) shift; unrevoke_tenant "$@" ;;
-        delete) shift; delete_tenant "$@" ;;
-        status) show_status ;;
-        ca-chain) check_ca_chain ;;
-        setup)
-            create_tenants && \
-            extract_certs && \
-            test_tenants
-            ;;
-        cleanup) cleanup ;;
-        help) show_help ;;
-        *) log_error "Unknown command: $1"; show_help; exit 1 ;;
-    esac
-    exit $?
-fi
-
-# Interactive menu
-# Remove the cleanup trap
-# trap cleanup EXIT  <- Remove this line
 
 # Main loop
 while true; do
@@ -391,34 +465,53 @@ while true; do
     read -r -p "Choose an option: " choice
     
     case $choice in
-        1) create_tenants ;;
+        1) 
+            read -r -p "Enter number of tenants (default: 3): " tenant_count
+            create_tenants "${tenant_count:-3}" "default"
+            ;;
         2)
+            read -r -p "Enter number of tenants (default: 3): " tenant_count
+            create_tenants "${tenant_count:-3}" "ecdsa"
+            ;;
+        3)
+            read -r -p "Enter number of tenants (default: 3): " tenant_count
+            create_tenants "${tenant_count:-3}" "large-keys"
+            ;;
+        4)
+            show_status
             read -r -p "Enter tenant name (leave empty for all tenants): " tenant_name
             extract_certs "$tenant_name"
             ;;
-        3)
+        5)
+            show_status
             read -r -p "Enter tenant name (leave empty for all tenants): " tenant_name
             test_tenants "$tenant_name"
             ;;
-        4) 
-            show_status  # Show available tenants first
+        6)
+            show_status
+            read -r -p "Enter tenant name: " tenant_name
+            check_cert_details "$tenant_name"
+            ;;
+        7)
+            show_status
             read -r -p "Enter tenant name to revoke: " tenant_name
             revoke_tenant "$tenant_name"
             ;;
-        5)
-            show_status  # Show available tenants first
+        8)
+            show_status
             read -r -p "Enter tenant name to unrevoke: " tenant_name
             unrevoke_tenant "$tenant_name"
             ;;
-        6)
-            show_status  # Show available tenants first
+        9)
+            show_status
             read -r -p "Enter tenant name to delete: " tenant_name
             delete_tenant "$tenant_name"
             ;;
-        7) show_status ;;
-        8) check_ca_chain ;;
-        9)
-            create_tenants && \
+        10) show_status ;;
+        11) check_ca_chain ;;
+        12)
+            read -r -p "Select tenant type (default/ecdsa/large-keys): " tenant_type
+            create_tenants "3" "$tenant_type" && \
             extract_certs && \
             test_tenants
             ;;
@@ -428,6 +521,4 @@ while true; do
     esac
 done
 
-# Move cleanup trap here, just before exit
-trap cleanup EXIT
 exit 0
