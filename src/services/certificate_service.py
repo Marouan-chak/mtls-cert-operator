@@ -11,14 +11,31 @@ class CertificateService:
         self.custom_objects_api = custom_objects_api
         self.logger = setup_logger('certificate-service')
 
-    def create_certificate(self, name: str, namespace: str, **kwargs) -> Dict[str, Any]:
+    def create_certificate(self, **kwargs) -> Dict[str, Any]:
         """Create or update a cert-manager Certificate resource."""
-        cert = self._build_certificate_spec(name, namespace, kwargs)
+        if 'metadata' in kwargs:  # Full resource definition provided
+            cert = kwargs
+            name = cert['metadata']['name']
+            namespace = cert['metadata']['namespace']
+        else:  # Individual parameters provided
+            name = kwargs.pop('name')
+            namespace = kwargs.pop('namespace')
+            cert = self._build_certificate_spec(name, namespace, kwargs)
+        
         return self._apply_certificate(cert, name, namespace)
 
-    def create_issuer(self, name: str, namespace: str, secret_name: str) -> Dict[str, Any]:
+    def create_issuer(self, **kwargs) -> Dict[str, Any]:
         """Create or update a cert-manager Issuer resource."""
-        issuer = self._build_issuer_spec(name, namespace, secret_name)
+        if 'metadata' in kwargs:  # Full resource definition provided
+            issuer = kwargs
+            name = issuer['metadata']['name']
+            namespace = issuer['metadata']['namespace']
+        else:  # Individual parameters provided
+            name = kwargs.pop('name')
+            namespace = kwargs.pop('namespace')
+            secret_name = kwargs.pop('secret_name')
+            issuer = self._build_issuer_spec(name, namespace, secret_name)
+        
         return self._apply_issuer(issuer, name, namespace)
 
     def _build_certificate_spec(self, name: str, namespace: str, spec: Dict[str, Any]) -> Dict[str, Any]:

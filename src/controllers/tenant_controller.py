@@ -48,7 +48,7 @@ class TenantController:
             resources = TenantResources.from_tenant_name(tenant_name)
             initially_revoked = spec.get('revoked', False)
             
-            self._create_tenant_certificates(namespace, resources, tenant_name)
+            self._create_tenant_certificates(namespace, resources, tenant_name, body)
             self._update_tenant_status(patch, resources, initially_revoked)
             self._update_ca_chain(namespace, tenant_name, initially_revoked)
             
@@ -58,47 +58,79 @@ class TenantController:
             self._handle_creation_failure(patch, body, tenant_name, str(e))
             raise kopf.PermanentError(str(e))
 
-    def _create_tenant_certificates(self, namespace: str, resources: TenantResources, tenant_name: str) -> None:
+    def _create_tenant_certificates(self, namespace: str, resources: TenantResources, tenant_name: str, body: Dict[str, Any]) -> None:
         """Create intermediate CA and client certificates for tenant."""
         # Create intermediate CA certificate
-        self.cert_service.create_certificate(
-            name=resources.intermediate_ca,
-            namespace=namespace,
-            isCA=True,
-            commonName=f"{tenant_name}-intermediate-ca",
-            secretName=resources.intermediate_ca_secret,
-            privateKey={'algorithm': 'RSA', 'size': 4096},
-            issuerRef={
-                'name': 'root-ca-issuer',
-                'kind': 'ClusterIssuer',
-                'group': 'cert-manager.io'
+        intermediate_ca = {
+            'apiVersion': f'{Config.api.CERT_MANAGER_GROUP}/{Config.api.CERT_MANAGER_VERSION}',
+            'kind': 'Certificate',
+            'metadata': {
+                'name': resources.intermediate_ca,
+                'namespace': namespace
             },
-            usages=['digital signature', 'key encipherment', 'cert sign']
-        )
+            'spec': {
+                'isCA': True,
+                'commonName': f"{tenant_name}-intermediate-ca",
+                'secretName': resources.intermediate_ca_secret,
+                'privateKey': {'algorithm': 'RSA', 'size': 4096},
+                'issuerRef': {
+                    'name': 'root-ca-issuer',
+                    'kind': 'ClusterIssuer',
+                    'group': 'cert-manager.io'
+                },
+                'usages': ['digital signature', 'key encipherment', 'cert sign']
+            }
+        }
+        
+        # Adopt the intermediate CA certificate
+        kopf.adopt(intermediate_ca, body)
+        self.cert_service.create_certificate(**intermediate_ca)
         
         self.kube_utils.wait_for_secret(self.core_v1_api, resources.intermediate_ca_secret, namespace)
         
         # Create issuer
-        self.cert_service.create_issuer(
-            name=resources.intermediate_ca,
-            namespace=namespace,
-            secret_name=resources.intermediate_ca_secret
-        )
+        issuer = {
+            'apiVersion': f'{Config.api.CERT_MANAGER_GROUP}/{Config.api.CERT_MANAGER_VERSION}',
+            'kind': 'Issuer',
+            'metadata': {
+                'name': resources.intermediate_ca,
+                'namespace': namespace
+            },
+            'spec': {
+                'ca': {
+                    'secretName': resources.intermediate_ca_secret
+                }
+            }
+        }
+        
+        # Adopt the issuer
+        kopf.adopt(issuer, body)
+        self.cert_service.create_issuer(**issuer)
         
         # Create client certificate
-        self.cert_service.create_certificate(
-            name=resources.client_cert,
-            namespace=namespace,
-            commonName=tenant_name,
-            secretName=resources.client_cert_secret,
-            privateKey={'algorithm': 'RSA', 'size': 2048},
-            issuerRef={
-                'name': resources.intermediate_ca,
-                'kind': 'Issuer',
-                'group': 'cert-manager.io'
+        client_cert = {
+            'apiVersion': f'{Config.api.CERT_MANAGER_GROUP}/{Config.api.CERT_MANAGER_VERSION}',
+            'kind': 'Certificate',
+            'metadata': {
+                'name': resources.client_cert,
+                'namespace': namespace
             },
-            usages=['digital signature', 'key encipherment', 'client auth']
-        )
+            'spec': {
+                'commonName': tenant_name,
+                'secretName': resources.client_cert_secret,
+                'privateKey': {'algorithm': 'RSA', 'size': 2048},
+                'issuerRef': {
+                    'name': resources.intermediate_ca,
+                    'kind': 'Issuer',
+                    'group': 'cert-manager.io'
+                },
+                'usages': ['digital signature', 'key encipherment', 'client auth']
+            }
+        }
+        
+        # Adopt the client certificate
+        kopf.adopt(client_cert, body)
+        self.cert_service.create_certificate(**client_cert)
         
         self.kube_utils.wait_for_secret(self.core_v1_api, resources.client_cert_secret, namespace)
 
@@ -130,40 +162,11 @@ class TenantController:
         namespace = meta['namespace']
         self.logger.info(f"Deleting tenant {tenant_name}")
         
-        # Update CA chain first
+        # Update CA chain
         self.ca_chain_service.create_or_update_ca_chain(
             namespace=namespace,
             excluded_tenant=tenant_name
         )
-        
-        resources = TenantResources.from_tenant_name(tenant_name)
-        self._cleanup_tenant_resources(namespace, resources)
-
-    def _cleanup_tenant_resources(self, namespace: str, resources: TenantResources) -> None:
-        """Clean up all resources associated with a tenant."""
-        cleanup_items = [
-            ('certificates', resources.intermediate_ca),
-            ('certificates', resources.client_cert),
-            ('issuers', resources.intermediate_ca),
-            ('secrets', resources.intermediate_ca_secret),
-            ('secrets', resources.client_cert_secret)
-        ]
-        
-        for resource_type, name in cleanup_items:
-            try:
-                if resource_type == 'secrets':
-                    self.core_v1_api.delete_namespaced_secret(name, namespace)
-                else:
-                    self.custom_objects_api.delete_namespaced_custom_object(
-                        Config.api.CERT_MANAGER_GROUP,
-                        Config.api.CERT_MANAGER_VERSION,
-                        namespace,
-                        resource_type,
-                        name
-                    )
-            except ApiException as e:
-                if e.status != 404:  # Ignore if already deleted
-                    self.logger.error(f"Failed to delete {resource_type} {name}: {e}")
 
     def handle_revocation_request(
         self,
@@ -237,7 +240,7 @@ class TenantController:
         
         try:
             resources = TenantResources.from_tenant_name(tenant_name)
-            self._create_tenant_certificates(namespace, resources, tenant_name)
+            self._create_tenant_certificates(namespace, resources, tenant_name, patch)
             
             patch.status.update({
                 'intermediateCA': resources.intermediate_ca,
