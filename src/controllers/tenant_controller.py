@@ -22,12 +22,16 @@ def init_controller(core_v1, custom_objects, cert_svc, ca_chain_svc):
     ca_chain_service = ca_chain_svc
 
 @kopf.on.create('mtls.invoisight.com', 'v1', 'tenants')
-def create_tenant(spec, meta, patch, **kwargs):
+def create_tenant(spec, meta, patch, body, **kwargs):
     """Handle tenant creation."""
     try:
         tenant_name = spec['name']
         namespace = meta['namespace']
         logger.info(f"Creating tenant {tenant_name}")
+        
+        # Post event for tenant creation start
+        kopf.info(body, reason='Creating',
+                  message=f'Creating tenant {tenant_name}')
         
         # Set initial state
         patch.status['state'] = 'Creating'
@@ -94,9 +98,16 @@ def create_tenant(spec, meta, patch, **kwargs):
             excluded_tenant=tenant_name if initially_revoked else None
         )
         
+        # Post event for successful creation
+        kopf.info(body, reason='Created',
+                  message=f'Successfully created tenant {tenant_name}')
+        
     except Exception as e:
         patch.status['state'] = 'Failed'
         patch.status['message'] = str(e)
+        # Post event for failed creation
+        kopf.warn(body, reason='Failed',
+                  message=f'Failed to create tenant: {str(e)}')
         raise kopf.PermanentError(str(e))
 
 @kopf.on.delete('mtls.invoisight.com', 'v1', 'tenants')
@@ -132,25 +143,33 @@ def delete_tenant(spec, meta, **kwargs):
                 logger.error(f"Failed to delete {resource_type} {name}: {e}")
 
 @kopf.on.field('mtls.invoisight.com', 'v1', 'tenants', field='spec.revoked')
-def handle_revocation_request(spec, status, old, new, patch, meta, **kwargs):
+def handle_revocation_request(spec, status, old, new, patch, meta, body, **kwargs):
     """Handle tenant revocation requests."""
     tenant_name = spec['name']
     namespace = meta['namespace']
     if new and not old:  # Revoking
         logger.info(f"Revoking tenant {tenant_name}")
+        kopf.info(body, reason='Revoking',
+                  message=f'Revoking tenant {tenant_name}')
         ca_chain_service.create_or_update_ca_chain(namespace=namespace, excluded_tenant=tenant_name)
         patch.status.update({
             'isRevoked': True,
             'state': 'Revoked'
         })
+        kopf.info(body, reason='Revoked',
+                  message=f'Successfully revoked tenant {tenant_name}')
     elif old and not new:  # Unrevoking
         if status.get('isRevoked', False):
             logger.info(f"Unrevoking tenant {tenant_name}")
+            kopf.info(body, reason='Unrevoking',
+                      message=f'Unrevoking tenant {tenant_name}')
             ca_chain_service.create_or_update_ca_chain(namespace=namespace, force_include=tenant_name)
             patch.status.update({
                 'isRevoked': False,
                 'state': 'Active'
             })
+            kopf.info(body, reason='Unrevoked',
+                      message=f'Successfully unrevoked tenant {tenant_name}')
 
 @kopf.on.timer('mtls.invoisight.com', 'v1', 'tenants', interval=60.0)
 def reconcile_tenant(spec, meta, status, patch, **kwargs):

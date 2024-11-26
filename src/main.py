@@ -40,15 +40,13 @@ def configure(settings: kopf.OperatorSettings, **_):
     settings.persistence.finalizer = 'mtls-operator/finalizer'
     
     # Reduce logging noise
-    settings.posting.level = logging.INFO # Only log warnings and errors for events
+    settings.posting.level = logging.INFO
+    settings.posting.enabled = True  # Enable event posting
     
-    # Configure which handlers should log
-    settings.watching.debug = False
-    settings.posting.debug = False
-    
-    # Disable success logging for specific activities
-    settings.persistence.progress_storage.success = False  # Don't store success progress
-    settings.persistence.diffbase_storage.success = False  # Don't store success diffs
+    # Configure which events to post
+    settings.posting.events = True  # Enable Kubernetes events
+    settings.posting.success_events = True  # Post events for successful operations
+    settings.posting.failure_events = True  # Post events for failures
     
     # Configure logging levels for different components
     logging.getLogger('kopf.objects').setLevel(logging.WARNING)        # Suppress regular object handling logs
