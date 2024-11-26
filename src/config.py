@@ -1,14 +1,21 @@
 from kubernetes import client, config
 import kubernetes
+from dataclasses import dataclass
+from typing import Dict, Any
+
+@dataclass
+class APIConfig:
+    TENANT_GROUP: str = "mtls.invoisight.com"
+    TENANT_VERSION: str = "v1"
+    CERT_MANAGER_GROUP: str = "cert-manager.io"
+    CERT_MANAGER_VERSION: str = "v1"
 
 class Config:
-    TENANT_GROUP = "mtls.invoisight.com"
-    TENANT_VERSION = "v1"
-    CERT_MANAGER_GROUP = "cert-manager.io"
-    CERT_MANAGER_VERSION = "v1"
+    api = APIConfig()
     
     @staticmethod
-    def initialize_kubernetes():
+    def initialize_kubernetes() -> Dict[str, Any]:
+        """Initialize Kubernetes client configuration."""
         try:
             config.load_incluster_config()
         except kubernetes.config.config_exception.ConfigException:
