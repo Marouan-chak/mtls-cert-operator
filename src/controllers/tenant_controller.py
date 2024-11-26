@@ -156,8 +156,8 @@ def handle_revocation_request(spec, status, old, new, patch, meta, **kwargs):
 def reconcile_tenant(spec, meta, status, patch, **kwargs):
     """Reconcile failed tenants."""
     if status.get('state') != 'Failed':
-        return
-        
+        return None  # Return None to prevent success logging
+    
     tenant_name = spec['name']
     logger.info(f"Reconciling failed tenant {tenant_name}")
     
@@ -231,11 +231,10 @@ def check_ca_chain_secret(spec, meta, status, **kwargs):
         # Try to get the ca-chain-secret
         try:
             core_v1_api.read_namespaced_secret('ca-chain-secret', namespace)
-            # If we get here, the secret exists
-            return
+            return None  # Return None to prevent success logging
         except ApiException as e:
             if e.status != 404:  # If error is not "Not Found", ignore it
-                return
+                return None  # Return None to prevent success logging
             
             logger.info(f"ca-chain-secret not found in namespace {namespace}, recreating...")
             

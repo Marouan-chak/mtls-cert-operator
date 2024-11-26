@@ -11,7 +11,7 @@ readonly NC='\033[0m' # No Color
 
 # Configuration
 readonly NAMESPACE="monitoring"
-readonly SERVER_URL="myserver.invoisight.com"
+readonly SERVER_URL="loki.gitops-test-ch-3.test.instadeep.net"
 readonly CERTS_DIR="certs"
 readonly MAX_RETRIES=30
 readonly RETRY_INTERVAL=2
@@ -98,7 +98,7 @@ EOF
 
 # Function to extract certificates
 extract_certs() {
-    local tenant_count=${1:-3}
+    local tenant_name="$1"
     
     log_info "Extracting certificates..."
     mkdir -p "$CERTS_DIR"
@@ -111,46 +111,106 @@ extract_certs() {
         return 1
     fi
     
-    for i in $(seq 1 "$tenant_count"); do
-        log_info "Extracting certificates for tenant${i}..."
+    if [[ -n "$tenant_name" ]]; then
+        # Extract specific tenant
+        log_info "Extracting certificates for ${tenant_name}..."
         
         # Extract cert and key
-        if ! kubectl get secret "tenant${i}-client-cert-secret" -n "$NAMESPACE" \
-             -o jsonpath='{.data.tls\.crt}' | base64 -d > "$CERTS_DIR/tenant${i}.crt" || \
-           ! kubectl get secret "tenant${i}-client-cert-secret" -n "$NAMESPACE" \
-             -o jsonpath='{.data.tls\.key}' | base64 -d > "$CERTS_DIR/tenant${i}.key"; then
-            log_error "Failed to extract certificates for tenant${i}"
+        if ! kubectl get secret "${tenant_name}-client-cert-secret" -n "$NAMESPACE" \
+             -o jsonpath='{.data.tls\.crt}' | base64 -d > "$CERTS_DIR/${tenant_name}.crt" || \
+           ! kubectl get secret "${tenant_name}-client-cert-secret" -n "$NAMESPACE" \
+             -o jsonpath='{.data.tls\.key}' | base64 -d > "$CERTS_DIR/${tenant_name}.key"; then
+            log_error "Failed to extract certificates for ${tenant_name}"
             return 1
         fi
         
         # Set proper permissions
-        chmod 600 "$CERTS_DIR/tenant${i}."{crt,key}
-        log_success "Extracted certificates for tenant${i}"
-    done
+        chmod 600 "$CERTS_DIR/${tenant_name}."{crt,key}
+        log_success "Extracted certificates for ${tenant_name}"
+    else
+        # Extract all tenants
+        tenant_list=$(kubectl get tenants -n "$NAMESPACE" --no-headers -o custom-columns=NAME:.spec.name)
+        
+        for tenant in $tenant_list; do
+            log_info "Extracting certificates for ${tenant}..."
+            
+            # Extract cert and key
+            if ! kubectl get secret "${tenant}-client-cert-secret" -n "$NAMESPACE" \
+                 -o jsonpath='{.data.tls\.crt}' | base64 -d > "$CERTS_DIR/${tenant}.crt" || \
+               ! kubectl get secret "${tenant}-client-cert-secret" -n "$NAMESPACE" \
+                 -o jsonpath='{.data.tls\.key}' | base64 -d > "$CERTS_DIR/${tenant}.key"; then
+                log_error "Failed to extract certificates for ${tenant}"
+                return 1
+            fi
+            
+            # Set proper permissions
+            chmod 600 "$CERTS_DIR/${tenant}."{crt,key}
+            log_success "Extracted certificates for ${tenant}"
+        done
+    fi
     
     log_success "All certificates extracted to ./$CERTS_DIR directory"
 }
 
 # Function to test tenants
 test_tenants() {
-    local tenant_count=${1:-3}  # Get the passed count or default to 3
+    local tenant_name="$1"  # Optional specific tenant name
     
     echo -e "\n${YELLOW}Testing tenant access...${NC}"
     
-    for i in $(seq 1 "$tenant_count"); do
-        echo -e "\n${YELLOW}Testing tenant${i}...${NC}"
-        response=$(curl -s --cert "$CERTS_DIR/tenant${i}.crt" \
-                        --key "$CERTS_DIR/tenant${i}.key" \
+    if [[ -n "$tenant_name" ]]; then
+        # Test specific tenant
+        echo -e "\n${YELLOW}Testing ${tenant_name}...${NC}"
+        if [[ ! -f "$CERTS_DIR/${tenant_name}.crt" ]]; then
+            log_error "Certificates for ${tenant_name} not found. Run extract first."
+            return 1
+        fi
+        
+        response=$(curl -s -w "\n%{http_code}" --cert "$CERTS_DIR/${tenant_name}.crt" \
+                        --key "$CERTS_DIR/${tenant_name}.key" \
                         --cacert "$CERTS_DIR/ca-chain.crt" \
                         "https://$SERVER_URL") || true
         
-        if [[ $response == *"X-Org-Id: tenant${i}"* ]]; then
-            echo -e "${GREEN}✓ tenant${i} authentication successful${NC}"
+        # Get status code (last line) and response body (everything else)
+        status_code=$(echo "$response" | tail -n1)
+        response_body=$(echo "$response" | sed '$d')
+        
+        if [[ "$status_code" =~ ^2[0-9][0-9]$ ]]; then
+            echo -e "${GREEN}✓ ${tenant_name} authentication successful${NC}"
         else
-            echo -e "${RED}✗ tenant${i} authentication failed${NC}"
-            echo "Response: $response"
+            echo -e "${RED}✗ ${tenant_name} authentication failed${NC}"
+            echo "Status code: $status_code"
+            echo "Response: $response_body"
         fi
-    done
+    else
+        # Test all tenants
+        tenant_list=$(kubectl get tenants -n "$NAMESPACE" --no-headers -o custom-columns=NAME:.spec.name)
+        
+        for tenant in $tenant_list; do
+            echo -e "\n${YELLOW}Testing ${tenant}...${NC}"
+            if [[ ! -f "$CERTS_DIR/${tenant}.crt" ]]; then
+                log_warning "Certificates for ${tenant} not found. Skipping."
+                continue
+            fi
+            
+            response=$(curl -s -w "\n%{http_code}" --cert "$CERTS_DIR/${tenant}.crt" \
+                            --key "$CERTS_DIR/${tenant}.key" \
+                            --cacert "$CERTS_DIR/ca-chain.crt" \
+                            "https://$SERVER_URL") || true
+            
+            # Get status code (last line) and response body (everything else)
+            status_code=$(echo "$response" | tail -n1)
+            response_body=$(echo "$response" | sed '$d')
+            
+            if [[ "$status_code" =~ ^2[0-9][0-9]$ ]]; then
+                echo -e "${GREEN}✓ ${tenant} authentication successful${NC}"
+            else
+                echo -e "${RED}✗ ${tenant} authentication failed${NC}"
+                echo "Status code: $status_code"
+                echo "Response: $response_body"
+            fi
+        done
+    fi
     
     # Don't return any error code to prevent script exit
     return 0
@@ -158,23 +218,23 @@ test_tenants() {
 
 # Function to manage tenant state
 manage_tenant_state() {
-    local tenant_num=$1
+    local tenant_name=$1
     local action=$2
     local expected_state=$3
     
-    # Validate tenant number
-    if ! [[ $tenant_num =~ ^[1-9][0-9]*$ ]]; then
-        log_error "Invalid tenant number: $tenant_num"
+    # Validate tenant name
+    if [[ -z "$tenant_name" ]]; then
+        log_error "Tenant name cannot be empty"
         return 1
     fi
     
     # Check if tenant exists
-    if ! kubectl get tenant "tenant${tenant_num}" -n "$NAMESPACE" &>/dev/null; then
-        log_error "Tenant${tenant_num} does not exist"
+    if ! kubectl get tenant "$tenant_name" -n "$NAMESPACE" &>/dev/null; then
+        log_error "Tenant $tenant_name does not exist"
         return 1
     fi
     
-    log_info "${action^}ing tenant${tenant_num}..."
+    log_info "${action^}ing $tenant_name..."
     
     local patch_value
     if [[ $action == "revoke" ]]; then
@@ -183,21 +243,21 @@ manage_tenant_state() {
         patch_value="false"
     fi
     
-    if ! kubectl patch tenant "tenant${tenant_num}" -n "$NAMESPACE" \
+    if ! kubectl patch tenant "$tenant_name" -n "$NAMESPACE" \
          --type=merge -p "{\"spec\":{\"revoked\":$patch_value}}"; then
-        log_error "Failed to $action tenant${tenant_num}"
+        log_error "Failed to $action $tenant_name"
         return 1
     fi
     
     # Wait for state change
     if ! wait_for_condition \
-        "$action of tenant${tenant_num}" \
-        "kubectl get tenant tenant${tenant_num} -n $NAMESPACE -o jsonpath='{.status.state}' | grep -q '$expected_state'"; then
-        log_error "Failed to $action tenant${tenant_num}"
+        "$action of $tenant_name" \
+        "kubectl get tenant $tenant_name -n $NAMESPACE -o jsonpath='{.status.state}' | grep -q '$expected_state'"; then
+        log_error "Failed to $action $tenant_name"
         return 1
     fi
     
-    log_success "Tenant${tenant_num} successfully ${action}d"
+    log_success "$tenant_name successfully ${action}d"
 }
 
 # Wrapper functions for tenant management
@@ -206,30 +266,30 @@ unrevoke_tenant() { manage_tenant_state "$1" "unrevoke" "Active"; }
 
 # Function to delete a tenant
 delete_tenant() {
-    local tenant_num=$1
+    local tenant_name=$1
     
-    # Validate tenant number
-    if ! [[ $tenant_num =~ ^[1-9][0-9]*$ ]]; then
-        log_error "Invalid tenant number: $tenant_num"
+    # Validate tenant name
+    if [[ -z "$tenant_name" ]]; then
+        log_error "Tenant name cannot be empty"
         return 1
     fi
     
-    log_info "Deleting tenant${tenant_num}..."
+    log_info "Deleting $tenant_name..."
     
-    if ! kubectl delete tenant "tenant${tenant_num}" -n "$NAMESPACE" &>/dev/null; then
-        log_error "Failed to delete tenant${tenant_num}"
+    if ! kubectl delete tenant "$tenant_name" -n "$NAMESPACE" &>/dev/null; then
+        log_error "Failed to delete $tenant_name"
         return 1
     fi
     
     # Wait for resources to be deleted
     if ! wait_for_condition \
-        "tenant${tenant_num} deletion" \
-        "! kubectl get secret tenant${tenant_num}-client-cert-secret -n $NAMESPACE &>/dev/null"; then
-        log_error "Failed to delete tenant${tenant_num} resources"
+        "$tenant_name deletion" \
+        "! kubectl get secret ${tenant_name}-client-cert-secret -n $NAMESPACE &>/dev/null"; then
+        log_error "Failed to delete $tenant_name resources"
         return 1
     fi
     
-    log_success "Tenant${tenant_num} and associated resources deleted"
+    log_success "$tenant_name and associated resources deleted"
 }
 
 # Function to show tenant status
@@ -267,8 +327,8 @@ Usage:
 
 Available Commands:
   create    Create test tenants
-  extract   Extract certificates
-  test      Test tenant access
+  extract   Extract certificates (usage: extract [tenant_name])
+  test      Test tenant access (usage: test [tenant_name])
   revoke    Revoke a tenant
   unrevoke  Unrevoke a tenant
   delete    Delete a tenant
@@ -332,23 +392,28 @@ while true; do
     
     case $choice in
         1) create_tenants ;;
-        2) extract_certs ;;
-        3) 
-            # Get the actual number of tenants that exist
-            tenant_count=$(kubectl get tenants -n "$NAMESPACE" --no-headers | wc -l)
-            test_tenants "$tenant_count"
+        2)
+            read -r -p "Enter tenant name (leave empty for all tenants): " tenant_name
+            extract_certs "$tenant_name"
+            ;;
+        3)
+            read -r -p "Enter tenant name (leave empty for all tenants): " tenant_name
+            test_tenants "$tenant_name"
             ;;
         4) 
-            read -r -p "Enter tenant number: " tenant_num
-            revoke_tenant "$tenant_num"
+            show_status  # Show available tenants first
+            read -r -p "Enter tenant name to revoke: " tenant_name
+            revoke_tenant "$tenant_name"
             ;;
         5)
-            read -r -p "Enter tenant number: " tenant_num
-            unrevoke_tenant "$tenant_num"
+            show_status  # Show available tenants first
+            read -r -p "Enter tenant name to unrevoke: " tenant_name
+            unrevoke_tenant "$tenant_name"
             ;;
         6)
-            read -r -p "Enter tenant number: " tenant_num
-            delete_tenant "$tenant_num"
+            show_status  # Show available tenants first
+            read -r -p "Enter tenant name to delete: " tenant_name
+            delete_tenant "$tenant_name"
             ;;
         7) show_status ;;
         8) check_ca_chain ;;
