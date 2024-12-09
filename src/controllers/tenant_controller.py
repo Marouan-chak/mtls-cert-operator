@@ -291,7 +291,15 @@ class TenantController:
         
         try:
             resources = TenantResources.from_tenant_spec(spec)
-            self._create_tenant_certificates(namespace, resources, tenant_name, patch)
+            body = {
+                'apiVersion': 'mtls.invoisight.com/v1',
+                'kind': 'Tenant',
+                'metadata': meta,
+                'spec': spec,
+                'status': status
+            }
+            
+            self._create_tenant_certificates(namespace, resources, tenant_name, body)
             
             patch.status.update({
                 'intermediateCA': resources.intermediate_ca,
